@@ -1,0 +1,384 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Link Ticket Co.</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --paper: #efede6;
+    --paper-dark: #e2dfd4;
+    --ink: #201f1d;
+    --ink-soft: #57534a;
+    --stamp: #b23a2e;
+    --line: #a8a39a;
+    --success: #3f6b4e;
+    --mono: 'IBM Plex Mono', ui-monospace, monospace;
+    --sans: 'IBM Plex Sans', system-ui, sans-serif;
+  }
+
+  *{ box-sizing: border-box; }
+
+  body{
+    margin:0;
+    min-height:100vh;
+    background:
+      radial-gradient(ellipse at top, #f5f3ec, var(--paper) 60%);
+    color: var(--ink);
+    font-family: var(--sans);
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    padding: 32px 16px;
+  }
+
+  .wrap{
+    width:100%;
+    max-width: 440px;
+  }
+
+  .eyebrow{
+    font-family: var(--mono);
+    font-size: 12px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--ink-soft);
+    text-align:center;
+    margin-bottom: 6px;
+  }
+
+  h1{
+    font-family: var(--mono);
+    font-weight: 700;
+    font-size: clamp(26px, 6vw, 34px);
+    text-align:center;
+    margin: 0 0 6px;
+    letter-spacing: -0.01em;
+  }
+
+  .tagline{
+    text-align:center;
+    color: var(--ink-soft);
+    font-size: 15px;
+    margin: 0 0 32px;
+  }
+
+  form{
+    display:flex;
+    gap:8px;
+    margin-bottom: 28px;
+  }
+
+  input[type="url"]{
+    flex:1;
+    min-width:0;
+    padding: 13px 14px;
+    border: 1.5px solid var(--line);
+    background: #fbfaf6;
+    border-radius: 4px;
+    font-family: var(--sans);
+    font-size: 15px;
+    color: var(--ink);
+  }
+
+  input[type="url"]::placeholder{ color: #9c968a; }
+
+  input[type="url"]:focus{
+    outline: none;
+    border-color: var(--ink);
+    box-shadow: 0 0 0 3px rgba(32,31,29,0.08);
+  }
+
+  button{
+    font-family: var(--mono);
+    font-weight: 600;
+    font-size: 13px;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    background: var(--ink);
+    color: var(--paper);
+    border: none;
+    border-radius: 4px;
+    padding: 0 20px;
+    cursor: pointer;
+    transition: background 0.15s ease, transform 0.1s ease;
+    white-space: nowrap;
+  }
+
+  button:hover{ background:#3a3733; }
+  button:active{ transform: scale(0.97); }
+  button:focus-visible{ outline: 2px solid var(--stamp); outline-offset: 2px; }
+  button:disabled{ opacity: 0.5; cursor: default; }
+
+  /* --- ticket --- */
+  .ticket-slot{
+    min-height: 4px;
+  }
+
+  .ticket{
+    position: relative;
+    background: #fbfaf6;
+    border: 1.5px solid var(--ink);
+    border-radius: 6px;
+    padding: 22px 22px 18px;
+    opacity: 0;
+    transform: translateY(10px) rotate(-0.6deg);
+  }
+
+  .ticket.show{
+    animation: stamp-in 0.42s cubic-bezier(.2,.9,.25,1.15) forwards;
+  }
+
+  @keyframes stamp-in{
+    0%{ opacity:0; transform: translateY(-14px) rotate(-3deg) scale(1.04); }
+    60%{ opacity:1; transform: translateY(2px) rotate(0.6deg) scale(1); }
+    100%{ opacity:1; transform: translateY(0) rotate(-0.4deg) scale(1); }
+  }
+
+  @media (prefers-reduced-motion: reduce){
+    .ticket.show{ animation: none; opacity: 1; transform: none; }
+  }
+
+  .ticket::before, .ticket::after{
+    content:"";
+    position:absolute;
+    left:0; right:0;
+    height: 14px;
+    background:
+      radial-gradient(circle at 8px 50%, transparent 6px, #fbfaf6 6.5px) repeat-x;
+    background-size: 16px 14px;
+  }
+  .ticket::before{ top:-7px; background-color: var(--paper); mix-blend-mode: normal; }
+  .ticket::after{ bottom:-7px; background-color: var(--paper); }
+
+  .ticket-row{
+    display:flex;
+    justify-content: space-between;
+    align-items: baseline;
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--ink-soft);
+    margin-bottom: 14px;
+  }
+
+  .ticket-row .stamp-mark{
+    color: var(--stamp);
+    border: 1.5px solid var(--stamp);
+    border-radius: 3px;
+    padding: 2px 6px;
+    transform: rotate(-3deg);
+    display:inline-block;
+    font-weight: 600;
+  }
+
+  .barcode{
+    display:flex;
+    align-items:flex-end;
+    gap: 2px;
+    height: 34px;
+    margin-bottom: 16px;
+  }
+  .barcode span{
+    display:block;
+    background: var(--ink);
+    height: 100%;
+  }
+
+  .short-url{
+    font-family: var(--mono);
+    font-weight: 600;
+    font-size: 19px;
+    word-break: break-all;
+    margin-bottom: 4px;
+  }
+
+  .short-url a{ color: var(--ink); text-decoration: none; border-bottom: 1.5px solid var(--stamp); }
+  .short-url a:hover{ color: var(--stamp); }
+
+  .original-url{
+    font-size: 13px;
+    color: var(--ink-soft);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    margin-bottom: 18px;
+  }
+
+  .ticket-footer{
+    display:flex;
+    justify-content: space-between;
+    align-items:center;
+    border-top: 1.5px dashed var(--line);
+    padding-top: 14px;
+  }
+
+  .fine-print{
+    font-family: var(--mono);
+    font-size: 10.5px;
+    letter-spacing: 0.04em;
+    color: var(--ink-soft);
+  }
+
+  .copy-btn{
+    background: transparent;
+    color: var(--ink);
+    border: 1.5px solid var(--ink);
+    padding: 7px 14px;
+    font-size: 11.5px;
+  }
+  .copy-btn:hover{ background: var(--ink); color: var(--paper); }
+  .copy-btn.copied{ background: var(--success); border-color: var(--success); color: #fff; }
+
+  .error-ticket{
+    font-family: var(--mono);
+    font-size: 13px;
+    color: var(--stamp);
+    background: #fbfaf6;
+    border: 1.5px dashed var(--stamp);
+    border-radius: 6px;
+    padding: 16px;
+    opacity:0;
+  }
+  .error-ticket.show{ animation: stamp-in 0.3s ease forwards; }
+
+  footer{
+    text-align:center;
+    margin-top: 28px;
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--ink-soft);
+    opacity: 0.7;
+  }
+
+  @media (max-width: 420px){
+    form{ flex-direction: column; }
+    button{ padding: 13px; }
+  }
+</style>
+</head>
+<body>
+
+<div class="wrap">
+  <div class="eyebrow">Link Ticket Co. — Est. today</div>
+  <h1>issue a claim ticket</h1>
+  <p class="tagline">Paste a URL. Get back a ticket you can actually carry around.</p>
+
+  <form id="shorten-form">
+    <input
+      type="url"
+      id="url-input"
+      placeholder="https://your-very-long-url.example.com/..."
+      required
+      autocomplete="off"
+    >
+    <button type="submit" id="submit-btn">Issue ticket</button>
+  </form>
+
+  <div class="ticket-slot" id="ticket-slot"></div>
+
+  <footer>machine reads only what you hand it — no history kept in this window</footer>
+</div>
+
+<script>
+  const API_URL = "https://6iwm7aiu77.execute-api.us-east-1.amazonaws.com";
+
+  const form = document.getElementById('shorten-form');
+  const input = document.getElementById('url-input');
+  const btn = document.getElementById('submit-btn');
+  const slot = document.getElementById('ticket-slot');
+
+  function makeBarcode(seed){
+    let bars = '';
+    for (let i = 0; i < seed.length * 3; i++){
+      const ch = seed.charCodeAt(i % seed.length);
+      const width = 2 + ((ch * (i + 1)) % 5);
+      const grow = ((ch + i) % 4 === 0) ? 1 : 0;
+      bars += `<span style="width:${width}px; height:${grow ? 100 : 60 + (ch % 40)}%;"></span>`;
+    }
+    return bars;
+  }
+
+  function ticketNumber(){
+    return String(Math.floor(Math.random() * 900000) + 100000);
+  }
+
+  function renderTicket(shortUrl, originalUrl){
+    const code = shortUrl.split('/').pop();
+    slot.innerHTML = `
+      <div class="ticket" id="ticket">
+        <div class="ticket-row">
+          <span>No. ${ticketNumber()}</span>
+          <span class="stamp-mark">Issued</span>
+        </div>
+        <div class="barcode">${makeBarcode(code)}</div>
+        <div class="short-url"><a href="${shortUrl}" target="_blank" rel="noopener">${shortUrl.replace(/^https?:\/\//, '')}</a></div>
+        <div class="original-url" title="${originalUrl}">redeems for: ${originalUrl}</div>
+        <div class="ticket-footer">
+          <span class="fine-print">valid indefinitely</span>
+          <button type="button" class="copy-btn" id="copy-btn">Copy</button>
+        </div>
+      </div>
+    `;
+    requestAnimationFrame(() => {
+      document.getElementById('ticket').classList.add('show');
+    });
+
+    document.getElementById('copy-btn').addEventListener('click', async (e) => {
+      await navigator.clipboard.writeText(shortUrl);
+      const b = e.currentTarget;
+      b.textContent = 'Copied';
+      b.classList.add('copied');
+      setTimeout(() => { b.textContent = 'Copy'; b.classList.remove('copied'); }, 1600);
+    });
+  }
+
+  function renderError(message){
+    slot.innerHTML = `<div class="error-ticket" id="error">TICKET DENIED — ${message}</div>`;
+    requestAnimationFrame(() => {
+      document.getElementById('error').classList.add('show');
+    });
+  }
+
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+
+    if (API_URL === "https://6iwm7aiu77.execute-api.us-east-1.amazonaws.com" || !API_URL) {
+      renderError("the machine has no address. Set API_URL in index.html.");
+      return;
+    }
+
+    const url = input.value.trim();
+    btn.disabled = true;
+    btn.textContent = 'Stamping…';
+
+    try {
+      const res = await fetch(`${API_URL}/shorten`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url })
+      });
+
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        renderError(data.error || `server said ${res.status}. try again.`);
+        return;
+      }
+
+      const data = await res.json();
+      renderTicket(data.shortUrl, url);
+      input.value = '';
+    } catch (err) {
+      renderError('could not reach the machine. check your connection or API_URL.');
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Issue ticket';
+    }
+  });
+</script>
+
+</body>
+</html>
