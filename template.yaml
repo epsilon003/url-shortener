@@ -1,0 +1,84 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: Serverless URL shortener — free tier only, with rate limiting
+
+Globals:
+  Function:
+    Runtime: nodejs20.x
+    Timeout: 5
+    MemorySize: 128
+    Environment:
+      Variables:
+        TABLE_NAME: !Ref UrlTable
+
+Resources:
+  UrlTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      BillingMode: PAY_PER_REQUEST   # on-demand — no idle cost
+      AttributeDefinitions:
+        - AttributeName: code
+          AttributeType: S
+      KeySchema:
+        - AttributeName: code
+          KeyType: HASH
+
+  HttpApi:
+    Type: AWS::Serverless::HttpApi
+    Properties:
+      CorsConfiguration:
+        AllowOrigins:
+          - "*"          # tighten to your actual frontend domain once deployed, e.g. https://yourname.github.io
+        AllowMethods:
+          - GET
+          - POST
+        AllowHeaders:
+          - Content-Type
+      DefaultRouteSettings:
+        ThrottlingRateLimit: 10      # steady-state requests/sec, free — caps flood before it reaches Lambda
+        ThrottlingBurstLimit: 20     # short burst allowance
+
+  ShortenFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src/shorten/
+      Handler: index.handler
+      # ReservedConcurrentExecutions omitted — new AWS accounts often have a low
+      # total concurrency quota (as little as 10), and AWS requires at least 10
+      # to stay unreserved at all times. The API Gateway throttle above already
+      # provides the rate-limiting/DDoS protection. Once your account's default
+      # concurrency quota is raised (Service Quotas console), you can re-add this.
+      Policies:
+        - DynamoDBWritePolicy:
+            TableName: !Ref UrlTable
+      Events:
+        Api:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /shorten
+            Method: POST
+
+  RedirectFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src/redirect/
+      Handler: index.handler
+      # ReservedConcurrentExecutions omitted — see note on ShortenFunction above.
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !Ref UrlTable
+        - DynamoDBWritePolicy:
+            TableName: !Ref UrlTable   # needed for the click-count update
+      Events:
+        Api:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /{code}
+            Method: GET
+
+Outputs:
+  ApiUrl:
+    Description: Base URL for the API
+    Value: !Sub "https://${HttpApi}.execute-api.${AWS::Region}.amazonaws.com"
