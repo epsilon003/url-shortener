@@ -28,7 +28,7 @@ Resources:
     Properties:
       CorsConfiguration:
         AllowOrigins:
-          - "*"          # tighten to your actual frontend domain once deployed, e.g. https://yourname.github.io
+          - "https://epsilon003.github.io/url-shortener"
         AllowMethods:
           - GET
           - POST
