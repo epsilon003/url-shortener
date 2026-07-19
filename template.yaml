@@ -89,7 +89,7 @@ Resources:
     Properties:
       CorsConfiguration:
         AllowOrigins:
-          - "https://epsilon003.github.io/url-shortener" 
+          - "https://epsilon003.github.io" 
         AllowMethods:
           - GET
           - POST
