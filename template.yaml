@@ -1,10 +1,27 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Transform: AWS::Serverless-2016-10-31
-Description: Serverless URL shortener — free tier only, with rate limiting
+Description: Serverless URL shortener — free tier only, with rate limiting and Cognito auth on write access
+
+Parameters:
+  CognitoDomainPrefix:
+    Type: String
+    Description: >
+      Globally-unique prefix for your Cognito Hosted UI domain, e.g.
+      "abhimantr-url-shortener". Becomes reachable at
+      https://<prefix>.auth.<region>.amazoncognito.com — must be unique
+      across all of AWS, not just your account.
+  FrontendCallbackUrl:
+    Type: String
+    Default: "http://localhost:8080/"
+    Description: >
+      URL Cognito redirects back to after login/logout — your deployed
+      frontend URL (e.g. https://yourname.github.io/url-shortener-frontend/).
+      Use the localhost default while testing locally, update it to your real
+      URL once the frontend is live (see SETUP_GUIDE.md Part 12).
 
 Globals:
   Function:
-    Runtime: nodejs20.x
+    Runtime: nodejs22.x
     Timeout: 5
     MemorySize: 128
     Environment:
@@ -23,17 +40,73 @@ Resources:
         - AttributeName: code
           KeyType: HASH
 
+  # --- Cognito: real per-user login, replacing the static shared API key ---
+
+  UserPool:
+    Type: AWS::Cognito::UserPool
+    Properties:
+      UserPoolName: url-shortener-users
+      AdminCreateUserConfig:
+        AllowAdminCreateUserOnly: true   # no public sign-up — only you can create accounts
+      AutoVerifiedAttributes:
+        - email
+      Policies:
+        PasswordPolicy:
+          MinimumLength: 8
+          RequireUppercase: true
+          RequireLowercase: true
+          RequireNumbers: true
+
+  UserPoolDomain:
+    Type: AWS::Cognito::UserPoolDomain
+    Properties:
+      Domain: !Ref CognitoDomainPrefix
+      UserPoolId: !Ref UserPool
+
+  UserPoolClient:
+    Type: AWS::Cognito::UserPoolClient
+    Properties:
+      UserPoolId: !Ref UserPool
+      GenerateSecret: false   # public client — a static frontend can't keep a secret, so it doesn't get one
+      AllowedOAuthFlows:
+        - implicit
+      AllowedOAuthScopes:
+        - openid
+        - email
+      AllowedOAuthFlowsUserPoolClient: true
+      CallbackURLs:
+        - !Ref FrontendCallbackUrl
+      LogoutURLs:
+        - !Ref FrontendCallbackUrl
+      SupportedIdentityProviders:
+        - COGNITO
+      ExplicitAuthFlows:
+        - ALLOW_USER_SRP_AUTH
+        - ALLOW_REFRESH_TOKEN_AUTH
+        - ALLOW_ADMIN_USER_PASSWORD_AUTH   # lets you fetch a test token via AWS CLI, no browser needed
+
+  # --- API ---
+
   HttpApi:
     Type: AWS::Serverless::HttpApi
     Properties:
       CorsConfiguration:
         AllowOrigins:
-          - "https://epsilon003.github.io/url-shortener"
+          - "*"          # tighten to your actual frontend domain once deployed, e.g. https://yourname.github.io
         AllowMethods:
           - GET
           - POST
         AllowHeaders:
           - Content-Type
+          - Authorization
+      Auth:
+        Authorizers:
+          CognitoAuthorizer:
+            JwtConfiguration:
+              issuer: !Sub "https://cognito-idp.${AWS::Region}.amazonaws.com/${UserPool}"
+              audience:
+                - !Ref UserPoolClient
+            IdentitySource: "$request.header.Authorization"
       DefaultRouteSettings:
         ThrottlingRateLimit: 10      # steady-state requests/sec, free — caps flood before it reaches Lambda
         ThrottlingBurstLimit: 20     # short burst allowance
@@ -58,6 +131,8 @@ Resources:
             ApiId: !Ref HttpApi
             Path: /shorten
             Method: POST
+            Auth:
+              Authorizer: CognitoAuthorizer
 
   RedirectFunction:
     Type: AWS::Serverless::Function
@@ -77,8 +152,20 @@ Resources:
             ApiId: !Ref HttpApi
             Path: /{code}
             Method: GET
+            # No Auth block — this route has no authorizer attached, which
+            # means it's public by default. Redirects must stay clickable by
+            # anyone, not just logged-in users.
 
 Outputs:
   ApiUrl:
     Description: Base URL for the API
     Value: !Sub "https://${HttpApi}.execute-api.${AWS::Region}.amazonaws.com"
+  UserPoolId:
+    Description: Cognito User Pool ID — needed to create your login via CLI
+    Value: !Ref UserPool
+  UserPoolClientId:
+    Description: Cognito User Pool Client ID — paste into frontend/index.html
+    Value: !Ref UserPoolClient
+  CognitoDomain:
+    Description: Cognito Hosted UI domain — paste into frontend/index.html
+    Value: !Sub "${CognitoDomainPrefix}.auth.${AWS::Region}.amazoncognito.com"

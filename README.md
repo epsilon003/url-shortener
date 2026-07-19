@@ -2,7 +2,7 @@
 
 A fully serverless URL shortener on AWS — paste a long URL, get back a short
 one, redirect at scale, pay nothing. Built to run entirely within AWS's
-Always Free tier.
+Always Free tier, with real per-user login via Amazon Cognito.
 
 **Live demo:** _add your GitHub Pages URL here once deployed_
 
@@ -12,7 +12,8 @@ Always Free tier.
 
 | Layer | Service | Why |
 |---|---|---|
-| API | Amazon API Gateway (HTTP API) | Routing, throttling, CORS |
+| API | Amazon API Gateway (HTTP API) | Routing, throttling, CORS, JWT auth |
+| Auth | Amazon Cognito | Real per-user login, no shared secrets |
 | Compute | AWS Lambda (Node.js 20) | Zero idle cost, scales to zero |
 | Database | Amazon DynamoDB (on-demand) | Single-digit ms lookups, no idle cost |
 | IaC | AWS SAM / CloudFormation | Declarative, one-command deploy |
@@ -27,17 +28,18 @@ is free indefinitely anyway).
 ## Architecture
 
 ```
-                     ┌─────────────────┐
-  Browser  ───POST──▶│  API Gateway     │
- (frontend)           │  (HTTP API)     │
-                     └────────┬────────┘
+                     ┌──────────────────┐
+  Browser  ───POST──▶│  API Gateway     │──── validates JWT via
+ (frontend)          │  (HTTP API)      │     Cognito JWT authorizer
+                     └────────┬─────────┘     (on /shorten only)
                               │
                  ┌────────────┴────────────┐
                  ▼                         ▼
-        ┌──────────────┐          ┌──────────────┐
-        │ShortenFunction│          │RedirectFunction│
-        │   (Lambda)    │          │   (Lambda)     │
-        └───────┬───────┘          └───────┬────────┘
+        ┌───────────────┐         ┌────────────────┐
+        │ShortenFunction │         │RedirectFunction │
+        │   (Lambda)     │         │   (Lambda)      │
+        │  auth required │         │  public, no auth │
+        └───────┬────────┘         └───────┬─────────┘
                  │                          │
                  └───────────┬──────────────┘
                               ▼
@@ -45,14 +47,19 @@ is free indefinitely anyway).
                      │   DynamoDB       │
                      │  (UrlTable)      │
                      └─────────────────┘
+
+  Sign-in flow: Browser → Cognito Hosted UI → redirect back with
+  id_token → sent as "Authorization: Bearer <token>" on POST /shorten
 ```
 
-`POST /shorten` → `ShortenFunction` generates a 6-character code, writes
-`{code, url, clicks, createdAt}` to DynamoDB, returns the short URL.
+`POST /shorten` → requires a valid Cognito ID token → `ShortenFunction`
+generates a 6-character code, writes `{code, url, clicks, createdAt}` to
+DynamoDB, returns the short URL.
 
-`GET /{code}` → `RedirectFunction` looks up the code, increments a click
-counter (fire-and-forget), and responds with a `301` redirect to the
-original URL.
+`GET /{code}` → no auth required → `RedirectFunction` looks up the code,
+increments a click counter (fire-and-forget), and responds with a `301`
+redirect to the original URL. This route is deliberately public: short
+links need to be clickable by anyone, not just the account holder.
 
 ---
 
@@ -60,7 +67,7 @@ original URL.
 
 ```
 url-shortener/
-├── template.yaml           # SAM/CloudFormation stack definition
+├── template.yaml           # SAM/CloudFormation stack: API, Lambdas, DynamoDB, Cognito
 ├── SETUP_GUIDE.md          # full beginner walkthrough, start to finish
 ├── src/
 │   ├── shorten/
@@ -70,32 +77,36 @@ url-shortener/
 │       ├── index.js        # GET /{code} handler
 │       └── package.json
 └── frontend/
-    └── index.html          # standalone ticket-themed UI, deploy anywhere static
+    └── index.html          # ticket-themed UI with Cognito sign-in, deploy anywhere static
 ```
 
 ---
 
 ## Quick start
 
-Full walkthrough (including AWS account setup, IAM, and CLI installation)
-is in [`SETUP_GUIDE.md`](./SETUP_GUIDE.md). Short version if you already
-have AWS CLI + SAM CLI configured:
+Full walkthrough (AWS account setup, IAM, Cognito user creation, CLI
+installation) is in [`SETUP_GUIDE.md`](./SETUP_GUIDE.md). Short version if
+you already have AWS CLI + SAM CLI configured:
 
 ```bash
 sam build
 sam deploy --guided
 ```
 
-Grab the `ApiUrl` output, then either test directly:
+You'll be prompted for `CognitoDomainPrefix` (must be globally unique) and
+`FrontendCallbackUrl`. After deploying, create yourself a Cognito user (see
+`SETUP_GUIDE.md` Part 7.5), fetch a token, and test:
 
 ```bash
-curl -X POST "$API_URL/shorten" \
+curl -X POST "$ApiURL/shorten" \
   -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $IdToken" \
   -d '{"url": "https://example.com"}'
 ```
 
-...or point `frontend/index.html`'s `API_URL` constant at it and deploy the
-page to GitHub Pages / Cloudflare Pages / any static host.
+...or point `frontend/index.html`'s config constants at your deployment and
+host the page anywhere static (GitHub Pages, Cloudflare Pages, etc) — it
+handles the Cognito login redirect for you.
 
 ---
 
@@ -103,8 +114,16 @@ page to GitHub Pages / Cloudflare Pages / any static host.
 
 ### `POST /shorten`
 
-**Request body:**
-```json
+Requires `Authorization: Bearer <id_token>`, validated by API Gateway's
+native JWT authorizer against your Cognito user pool — no custom auth code
+to maintain.
+
+**Request:**
+```
+POST /shorten
+Content-Type: application/json
+Authorization: Bearer eyJraWQiOi...
+
 { "url": "https://example.com/some/long/path" }
 ```
 
@@ -118,10 +137,13 @@ page to GitHub Pages / Cloudflare Pages / any static host.
 { "error": "Valid 'url' is required" }
 ```
 
+**Response `401`** — missing, expired, or invalid token.
+
 ### `GET /{code}`
 
-Returns `301` with a `Location` header pointing at the original URL, or
-`404` if the code doesn't exist.
+**No auth required** — redirects must stay publicly clickable. Returns
+`301` with a `Location` header pointing at the original URL, or `404` if
+the code doesn't exist.
 
 ---
 
@@ -145,9 +167,10 @@ Everything here runs on AWS Always Free tier limits:
 - DynamoDB: 25 GB storage, on-demand pricing scales with actual usage
 - API Gateway HTTP API: 1M calls/month free for 12 months from account
   creation, then ~$1/million after
+- Cognito: 50,000 monthly active users free, indefinitely
 
-A zero-spend AWS Budget alert is recommended (see `SETUP_GUIDE.md`, Part 2)
-so you're notified the instant anything would bill.
+A budget alert is recommended (see `SETUP_GUIDE.md`, Part 2) so you're
+notified the instant anything would bill.
 
 ---
 
@@ -156,12 +179,19 @@ so you're notified the instant anything would bill.
 - IAM permissions are scoped per-function via SAM policy templates
   (`DynamoDBReadPolicy` / `DynamoDBWritePolicy`) — each Lambda can only
   touch the one table it needs, nothing else in the account.
+- `POST /shorten` requires a valid Cognito-issued JWT, checked natively by
+  API Gateway (no custom Lambda authorizer to maintain, no static secret
+  living in the frontend's page source). Tokens expire after 1 hour by
+  default.
+- Public self-signup is disabled on the Cognito user pool
+  (`AllowAdminCreateUserOnly: true`) — only you can create accounts, via
+  `aws cognito-idp admin-create-user`. This keeps the tool single-user by
+  default; remove that setting if you want others to be able to sign up.
 - CORS on the API is currently open (`AllowOrigins: "*"`) for ease of setup —
   tighten this to your actual frontend domain before treating this as
-  production (see `SETUP_GUIDE.md`, Part 12.4).
-- No authentication on the API — anyone with the URL can create short links.
-  Fine for a demo/personal project; add an API key or Cognito authorizer
-  before exposing this publicly at scale.
+  production (see `SETUP_GUIDE.md`, Part 12.5).
+- `GET /{code}` intentionally has no auth — short links need to be publicly
+  clickable by anyone, not just the account holder.
 
 ---
 
@@ -171,9 +201,9 @@ so you're notified the instant anything would bill.
 sam delete
 ```
 
-Removes the entire stack — Lambda functions, API Gateway, DynamoDB table —
-in one command. The frontend (if on GitHub Pages) is removed separately by
-deleting that repo or disabling Pages in its settings.
+Removes the entire stack — Lambda functions, API Gateway, DynamoDB table,
+Cognito user pool — in one command. The frontend (if on GitHub Pages) is
+removed separately by deleting that repo or disabling Pages in its settings.
 
 ---
 

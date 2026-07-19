@@ -62,7 +62,48 @@
     text-align:center;
     color: var(--ink-soft);
     font-size: 15px;
-    margin: 0 0 32px;
+    margin: 0 0 24px;
+  }
+
+  /* --- auth bar --- */
+  .auth-bar{
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    gap: 10px;
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--ink-soft);
+    margin-bottom: 24px;
+    padding: 10px 14px;
+    border: 1.5px dashed var(--line);
+    border-radius: 4px;
+    background: rgba(251,250,246,0.6);
+  }
+
+  .auth-bar a, .auth-bar button.link-btn{
+    font-family: var(--mono);
+    font-weight: 600;
+    font-size: 12px;
+    letter-spacing: 0.04em;
+    color: var(--ink);
+    background: none;
+    border: none;
+    padding: 0;
+    text-decoration: underline;
+    text-underline-offset: 3px;
+    cursor: pointer;
+  }
+  .auth-bar a:hover, .auth-bar button.link-btn:hover{ color: var(--stamp); }
+
+  .locked-notice{
+    text-align:center;
+    font-size: 14px;
+    color: var(--ink-soft);
+    padding: 24px 10px;
+    border: 1.5px dashed var(--line);
+    border-radius: 6px;
+    margin-bottom: 10px;
   }
 
   form{
@@ -267,7 +308,9 @@
   <h1>issue a claim ticket</h1>
   <p class="tagline">Paste a URL. Get back a ticket you can actually carry around.</p>
 
-  <form id="shorten-form">
+  <div class="auth-bar" id="auth-bar">checking who's asking…</div>
+
+  <form id="shorten-form" style="display:none;">
     <input
       type="url"
       id="url-input"
@@ -278,18 +321,124 @@
     <button type="submit" id="submit-btn">Issue ticket</button>
   </form>
 
+  <div class="locked-notice" id="locked-notice" style="display:none;">
+    Sign in above to issue tickets. Anyone can still redeem an already-issued
+    short link without signing in.
+  </div>
+
   <div class="ticket-slot" id="ticket-slot"></div>
 
   <footer>machine reads only what you hand it — no history kept in this window</footer>
 </div>
 
 <script>
-  const API_URL = "https://6iwm7aiu77.execute-api.us-east-1.amazonaws.com";
 
+  // API Gateway base URL
+  const ApiURL = "https://twtraikbpj.execute-api.us-east-1.amazonaws.com";
+
+  // Cognito Hosted UI domain
+  const CognitoDomain = "epsilon003-url-shortener.auth.us-east-1.amazoncognito.com";
+
+  // Cognito App Client ID
+  const CognitoClientId = "4ct5v5fg5rkjmq0uauff8jp58g";
+
+  // Must exactly match a CallbackURL/LogoutURL you deployed with — this page's
+  // own URL. Use http://localhost:8080/ while testing locally with e.g.
+  // `python3 -m http.server 8080`, and your real GitHub Pages URL once live.
+  const RedirectUri = window.location.origin + window.location.pathname;
+
+  // ---- End config ----
+
+  const TOKEN_KEY = 'url_shortener_id_token';
+
+  const authBar = document.getElementById('auth-bar');
   const form = document.getElementById('shorten-form');
+  const lockedNotice = document.getElementById('locked-notice');
   const input = document.getElementById('url-input');
   const btn = document.getElementById('submit-btn');
   const slot = document.getElementById('ticket-slot');
+
+  function decodeJwtPayload(token){
+    try {
+      const payload = token.split('.')[1];
+      const json = atob(payload.replace(/-/g, '+').replace(/_/g, '/'));
+      return JSON.parse(json);
+    } catch {
+      return null;
+    }
+  }
+
+  function loginUrl(){
+    const params = new URLSearchParams({
+      client_id: CognitoClientId,
+      response_type: 'token',
+      scope: 'openid email',
+      redirect_uri: RedirectUri
+    });
+    return `https://${CognitoDomain}/login?${params.toString()}`;
+  }
+
+  function logoutUrl(){
+    const params = new URLSearchParams({
+      client_id: CognitoClientId,
+      logout_uri: RedirectUri
+    });
+    return `https://${CognitoDomain}/logout?${params.toString()}`;
+  }
+
+  function configMissing(){
+    return [ApiURL, CognitoDomain, CognitoClientId].some(
+      v => !v || v.startsWith('PASTE_YOUR_')
+    );
+  }
+
+  function captureTokenFromHash(){
+    if (!window.location.hash) return;
+    const params = new URLSearchParams(window.location.hash.slice(1));
+    const idToken = params.get('id_token');
+    if (idToken) {
+      sessionStorage.setItem(TOKEN_KEY, idToken);
+      history.replaceState(null, '', window.location.pathname);
+    }
+  }
+
+  function getToken(){
+    return sessionStorage.getItem(TOKEN_KEY);
+  }
+
+  function isExpired(token){
+    const payload = decodeJwtPayload(token);
+    if (!payload || !payload.exp) return true;
+    return Date.now() >= payload.exp * 1000;
+  }
+
+  function renderAuthBar(){
+    if (configMissing()) {
+      authBar.textContent = 'Config missing — set ApiURL / CognitoDomain / CognitoClientId in index.html.';
+      form.style.display = 'none';
+      lockedNotice.style.display = 'none';
+      return;
+    }
+
+    const token = getToken();
+
+    if (token && !isExpired(token)) {
+      const payload = decodeJwtPayload(token);
+      const email = payload?.email || 'signed in';
+      authBar.innerHTML = `Signed in as <strong>${email}</strong> &nbsp;·&nbsp; <button type="button" class="link-btn" id="signout-btn">Sign out</button>`;
+      document.getElementById('signout-btn').addEventListener('click', () => {
+        sessionStorage.removeItem(TOKEN_KEY);
+        window.location.href = logoutUrl();
+      });
+      form.style.display = 'flex';
+      lockedNotice.style.display = 'none';
+    } else {
+      sessionStorage.removeItem(TOKEN_KEY);
+      authBar.innerHTML = `Not signed in &nbsp;·&nbsp; <a href="${loginUrl()}">Sign in</a>`;
+      form.style.display = 'none';
+      lockedNotice.style.display = 'block';
+    }
+  }
 
   function makeBarcode(seed){
     let bars = '';
@@ -346,8 +495,10 @@
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
 
-    if (API_URL === "https://6iwm7aiu77.execute-api.us-east-1.amazonaws.com" || !API_URL) {
-      renderError("the machine has no address. Set API_URL in index.html.");
+    const token = getToken();
+    if (!token || isExpired(token)) {
+      renderError('your session expired. sign in again.');
+      renderAuthBar();
       return;
     }
 
@@ -356,11 +507,21 @@
     btn.textContent = 'Stamping…';
 
     try {
-      const res = await fetch(`${API_URL}/shorten`, {
+      const res = await fetch(`${ApiURL}/shorten`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
         body: JSON.stringify({ url })
       });
+
+      if (res.status === 401 || res.status === 403) {
+        renderError('session rejected. sign in again.');
+        sessionStorage.removeItem(TOKEN_KEY);
+        renderAuthBar();
+        return;
+      }
 
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
@@ -372,12 +533,16 @@
       renderTicket(data.shortUrl, url);
       input.value = '';
     } catch (err) {
-      renderError('could not reach the machine. check your connection or API_URL.');
+      renderError('could not reach the machine. check your connection or ApiURL.');
     } finally {
       btn.disabled = false;
       btn.textContent = 'Issue ticket';
     }
   });
+
+  // ---- init ----
+  captureTokenFromHash();
+  renderAuthBar();
 </script>
 
 </body>
