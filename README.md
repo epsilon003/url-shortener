@@ -4,7 +4,7 @@ A fully serverless URL shortener on AWS — paste a long URL, get back a short
 one, redirect at scale, pay nothing. Built to run entirely within AWS's
 Always Free tier, with real per-user login via Amazon Cognito.
 
-**Live demo:** _add your GitHub Pages URL here once deployed_
+![](ss.PNG)
 
 ---
 
@@ -68,7 +68,6 @@ links need to be clickable by anyone, not just the account holder.
 ```
 url-shortener/
 ├── template.yaml           # SAM/CloudFormation stack: API, Lambdas, DynamoDB, Cognito
-├── SETUP_GUIDE.md          # full beginner walkthrough, start to finish
 ├── src/
 │   ├── shorten/
 │   │   ├── index.js        # POST /shorten handler
@@ -76,8 +75,7 @@ url-shortener/
 │   └── redirect/
 │       ├── index.js        # GET /{code} handler
 │       └── package.json
-└── frontend/
-    └── index.html          # ticket-themed UI with Cognito sign-in, deploy anywhere static
+└── index.html          # ticket-themed UI with Cognito sign-in, deploy anywhere static
 ```
 
 ---
@@ -174,27 +172,6 @@ notified the instant anything would bill.
 
 ---
 
-## Security notes
-
-- IAM permissions are scoped per-function via SAM policy templates
-  (`DynamoDBReadPolicy` / `DynamoDBWritePolicy`) — each Lambda can only
-  touch the one table it needs, nothing else in the account.
-- `POST /shorten` requires a valid Cognito-issued JWT, checked natively by
-  API Gateway (no custom Lambda authorizer to maintain, no static secret
-  living in the frontend's page source). Tokens expire after 1 hour by
-  default.
-- Public self-signup is disabled on the Cognito user pool
-  (`AllowAdminCreateUserOnly: true`) — only you can create accounts, via
-  `aws cognito-idp admin-create-user`. This keeps the tool single-user by
-  default; remove that setting if you want others to be able to sign up.
-- CORS on the API is currently open (`AllowOrigins: "*"`) for ease of setup —
-  tighten this to your actual frontend domain before treating this as
-  production (see `SETUP_GUIDE.md`, Part 12.5).
-- `GET /{code}` intentionally has no auth — short links need to be publicly
-  clickable by anyone, not just the account holder.
-
----
-
 ## Teardown
 
 ```bash
@@ -206,7 +183,3 @@ Cognito user pool — in one command. The frontend (if on GitHub Pages) is
 removed separately by deleting that repo or disabling Pages in its settings.
 
 ---
-
-## License
-
-MIT — do whatever you want with this.

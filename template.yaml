@@ -40,14 +40,12 @@ Resources:
         - AttributeName: code
           KeyType: HASH
 
-  # --- Cognito: real per-user login, replacing the static shared API key ---
-
   UserPool:
     Type: AWS::Cognito::UserPool
     Properties:
       UserPoolName: url-shortener-users
       AdminCreateUserConfig:
-        AllowAdminCreateUserOnly: true   # no public sign-up — only you can create accounts
+        AllowAdminCreateUserOnly: false
       AutoVerifiedAttributes:
         - email
       Policies:
@@ -67,7 +65,7 @@ Resources:
     Type: AWS::Cognito::UserPoolClient
     Properties:
       UserPoolId: !Ref UserPool
-      GenerateSecret: false   # public client — a static frontend can't keep a secret, so it doesn't get one
+      GenerateSecret: false
       AllowedOAuthFlows:
         - implicit
       AllowedOAuthScopes:
@@ -83,8 +81,7 @@ Resources:
       ExplicitAuthFlows:
         - ALLOW_USER_SRP_AUTH
         - ALLOW_REFRESH_TOKEN_AUTH
-        - ALLOW_ADMIN_USER_PASSWORD_AUTH   # lets you fetch a test token via AWS CLI, no browser needed
-
+        - ALLOW_ADMIN_USER_PASSWORD_AUTH 
   # --- API ---
 
   HttpApi:
@@ -92,7 +89,7 @@ Resources:
     Properties:
       CorsConfiguration:
         AllowOrigins:
-          - "*"          # tighten to your actual frontend domain once deployed, e.g. https://yourname.github.io
+          - "https://epsilon003.github.io/url-shortener" 
         AllowMethods:
           - GET
           - POST
@@ -108,19 +105,14 @@ Resources:
                 - !Ref UserPoolClient
             IdentitySource: "$request.header.Authorization"
       DefaultRouteSettings:
-        ThrottlingRateLimit: 10      # steady-state requests/sec, free — caps flood before it reaches Lambda
-        ThrottlingBurstLimit: 20     # short burst allowance
+        ThrottlingRateLimit: 10
+        ThrottlingBurstLimit: 20
 
   ShortenFunction:
     Type: AWS::Serverless::Function
     Properties:
       CodeUri: src/shorten/
       Handler: index.handler
-      # ReservedConcurrentExecutions omitted — new AWS accounts often have a low
-      # total concurrency quota (as little as 10), and AWS requires at least 10
-      # to stay unreserved at all times. The API Gateway throttle above already
-      # provides the rate-limiting/DDoS protection. Once your account's default
-      # concurrency quota is raised (Service Quotas console), you can re-add this.
       Policies:
         - DynamoDBWritePolicy:
             TableName: !Ref UrlTable
@@ -139,7 +131,6 @@ Resources:
     Properties:
       CodeUri: src/redirect/
       Handler: index.handler
-      # ReservedConcurrentExecutions omitted — see note on ShortenFunction above.
       Policies:
         - DynamoDBReadPolicy:
             TableName: !Ref UrlTable
@@ -152,9 +143,6 @@ Resources:
             ApiId: !Ref HttpApi
             Path: /{code}
             Method: GET
-            # No Auth block — this route has no authorizer attached, which
-            # means it's public by default. Redirects must stay clickable by
-            # anyone, not just logged-in users.
 
 Outputs:
   ApiUrl:
